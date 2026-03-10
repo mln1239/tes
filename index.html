@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Scratch Like Editor</title>
+<style>
+body{margin:0;font-family:sans-serif;display:grid;grid-template-columns:80px 240px 1fr 320px;height:100vh}
+
+#categories{background:#2f3136;color:white;padding:6px}
+.cat{padding:8px;border-radius:6px;margin-bottom:4px;cursor:pointer}
+.cat:hover{background:#40444b}
+
+#palette{background:#f3f3f3;padding:10px;overflow:auto}
+
+.block,.scriptBlock{
+ position:relative;
+ padding:10px 14px;
+ margin-bottom:8px;
+ border-radius:6px;
+ font-size:14px;
+ font-weight:500;
+ width:fit-content;
+ cursor:grab;
+ color:white;
+}
+
+.block::before,.scriptBlock::before{
+ content:"";
+ position:absolute;
+ top:-6px;
+ left:18px;
+ width:30px;
+ height:6px;
+ background:inherit;
+ border-top-left-radius:4px;
+ border-top-right-radius:4px;
+}
+
+.block::after,.scriptBlock::after{
+ content:"";
+ position:absolute;
+ bottom:-6px;
+ left:18px;
+ width:30px;
+ height:6px;
+ background:inherit;
+ border-bottom-left-radius:4px;
+ border-bottom-right-radius:4px;
+}
+
+.motion{background:#4C97FF}
+.events{background:#FFD500;color:black}
+.looks{background:#9966FF}
+.control{background:#FFAB19}
+
+.foreverBlock{padding-bottom:26px}
+
+.foreverBlock::after{
+ content:"";
+ position:absolute;
+ left:12px;
+ top:32px;
+ bottom:-18px;
+ width:4px;
+ background:#d98b00;
+ border-radius:2px;
+}
+
+#workspace{background:#fafafa;position:relative;overflow:auto}
+.scriptBlock{position:absolute}
+
+#stageArea{background:#ffffff;border-left:1px solid #ddd;display:flex;flex-direction:column}
+#stage{height:240px;margin:10px;border:2px solid #ccc;position:relative;background:white}
+#sprite{width:24px;height:24px;background:#4caf50;position:absolute;border-radius:4px}
+
+#sayBubble{
+ position:absolute;
+ background:white;
+ border:1px solid #ccc;
+ border-radius:8px;
+ padding:6px 10px;
+ font-size:12px;
+ top:-30px;
+ left:28px;
+ display:none;
+}
+
+#controls{display:flex;gap:6px;padding:6px}
+button{cursor:pointer;padding:6px 10px}
+
+#trash{margin:10px;background:#ff6b6b;color:white;padding:6px;border-radius:6px;text-align:center}
+
+input{border-radius:4px;border:none;padding:2px 4px;width:45px}
+select{border-radius:4px;border:none;padding:2px 4px}
+</style>
+</head>
+<body>
+
+<div id="categories">
+<div class="cat">Motion</div>
+<div class="cat">Looks</div>
+<div class="cat">Events</div>
+<div class="cat">Control</div>
+</div>
+
+<div id="palette">
+<h4>Blocks</h4>
+
+<div class="block events" draggable="true" data-type="whenRun">when green flag clicked</div>
+
+<div class="block motion" draggable="true" data-type="move">move <input value="10"> steps</div>
+<div class="block motion" draggable="true" data-type="turn">turn <input value="15">°</div>
+
+<div class="block motion" draggable="true" data-type="goto">go to x:<input value="0"> y:<input value="0"></div>
+
+<div class="block motion" draggable="true" data-type="change">change <select><option>x</option><option>y</option></select> by <input value="10"></div>
+
+<div class="block motion" draggable="true" data-type="set">set <select><option>x</option><option>y</option></select> to <input value="0"></div>
+
+<div class="block looks" draggable="true" data-type="say">say <input value="hello" style="width:60px"></div>
+
+<div class="block control" draggable="true" data-type="wait">wait <input value="1"> seconds</div>
+
+<div class="block looks" draggable="true" data-type="saywait">say <input value="Hello" style="width:60px"> for <input value="1"> seconds</div>
+
+<div class="block control" draggable="true" data-type="forever">forever</div>
+
+</div>
+
+<div id="workspace"></div>
+
+<div id="stageArea">
+
+<div id="controls">
+<button onclick="runBlocks()">🟢 Green Flag</button>
+<button onclick="resetSprite()">⏹ Stop</button>
+</div>
+
+<div id="stage">
+<div id="sprite">
+<div id="sayBubble"></div>
+</div>
+</div>
+
+<div id="trash">Drag block here to delete</div>
+
+</div>
+
+<script>
+const workspace=document.getElementById("workspace")
+const spriteEl=document.getElementById("sprite")
+const trash=document.getElementById("trash")
+const bubble=document.getElementById("sayBubble")
+
+let blocks=[]
+
+// palette drag
+
+document.querySelectorAll("#palette .block").forEach(b=>{
+ b.addEventListener("dragstart",e=>{
+  e.dataTransfer.setData("type",b.dataset.type)
+  e.dataTransfer.setData("html",b.innerHTML)
+ })
+})
+
+workspace.addEventListener("dragover",e=>e.preventDefault())
+trash.addEventListener("dragover",e=>e.preventDefault())
+
+function createBlock(type,html,x,y){
+ const el=document.createElement("div")
+ el.className="scriptBlock"
+ el.draggable=true
+ el.dataset.type=type
+ el.innerHTML=html
+
+ if(type==="whenRun") el.classList.add("events")
+ if(["move","turn","goto","change","set"].includes(type)) el.classList.add("motion")
+ if(type==="say"||type==="saywait") el.classList.add("looks")
+ if(type==="wait"||type==="forever") el.classList.add("control")
+
+ if(type==="forever") el.classList.add("foreverBlock")
+
+ el.style.left=x+"px"
+ el.style.top=y+"px"
+
+ el.addEventListener("dragstart",()=>{
+  el.dataset.dragging="true"
+ })
+
+ workspace.appendChild(el)
+ blocks.push(el)
+ return el
+}
+
+function snapBlock(el){
+ const rect=el.getBoundingClientRect()
+ let closest=null
+ let dist=9999
+
+ blocks.forEach(b=>{
+  if(b===el) return
+
+  const r=b.getBoundingClientRect()
+  const dx=Math.abs(r.left-rect.left)
+  const dy=Math.abs((r.bottom+6)-rect.top)
+
+  if(dx<40 && dy<dist && dy<30){
+   dist=dy
+   closest=b
+  }
+ })
+
+ if(closest){
+  el.style.left=closest.style.left
+  el.style.top=(closest.offsetTop+closest.offsetHeight+6)+"px"
+ }
+}
+
+workspace.addEventListener("drop",e=>{
+ e.preventDefault()
+
+ const type=e.dataTransfer.getData("type")
+ const html=e.dataTransfer.getData("html")
+
+ if(!type) return
+
+ const el=createBlock(type,html,e.offsetX,e.offsetY)
+ snapBlock(el)
+})
+
+trash.addEventListener("drop",()=>{
+ const dragging=document.querySelector("[data-dragging='true']")
+ if(dragging){
+  blocks=blocks.filter(b=>b!==dragging)
+  dragging.remove()
+ }
+})
+
+let sprite={x:120,y:100,angle:90}
+
+function updateSprite(){
+ spriteEl.style.left=sprite.x+"px"
+ spriteEl.style.top=sprite.y+"px"
+ spriteEl.style.transform=`rotate(${sprite.angle}deg)`
+}
+
+function resetSprite(){
+ sprite={x:120,y:100,angle:90}
+ bubble.style.display="none"
+ updateSprite()
+}
+
+function showSay(text){
+ bubble.textContent=text
+ bubble.style.display="block"
+}
+
+// execute block
+
+async function executeBlock(block){
+ const type=block.dataset.type
+
+ if(type==="move"){
+  const v=Number(block.querySelector("input").value)
+  sprite.x+=v
+ }
+
+ if(type==="turn"){
+  const v=Number(block.querySelector("input").value)
+  sprite.angle+=v
+ }
+
+ if(type==="goto"){
+  const inputs=block.querySelectorAll("input")
+  sprite.x=Number(inputs[0].value)
+  sprite.y=Number(inputs[1].value)
+ }
+
+ if(type==="change"){
+  const sel=block.querySelector("select").value
+  const val=Number(block.querySelector("input").value)
+  if(sel==="x") sprite.x+=val
+  if(sel==="y") sprite.y+=val
+ }
+
+ if(type==="set"){
+  const sel=block.querySelector("select").value
+  const val=Number(block.querySelector("input").value)
+  if(sel==="x") sprite.x=val
+  if(sel==="y") sprite.y=val
+ }
+
+ if(type==="say"){
+  const v=block.querySelector("input").value
+  showSay(v)
+ }
+
+ if(type==="wait"){
+  const t=Number(block.querySelector("input").value)*1000
+  await new Promise(r=>setTimeout(r,t))
+ }
+
+ if(type==="saywait"){
+  const inputs=block.querySelectorAll("input")
+  const text=inputs[0].value
+  const t=Number(inputs[1].value)*1000
+  showSay(text)
+  await new Promise(r=>setTimeout(r,t))
+ }
+}
+
+function getNextBlock(current){
+ return blocks.find(b=>{
+  return b!==current &&
+  Math.abs(b.offsetLeft-current.offsetLeft)<5 &&
+  Math.abs(b.offsetTop-(current.offsetTop+current.offsetHeight+6))<10
+ })
+}
+
+async function runBlocks(){
+ const event=blocks.find(b=>b.dataset.type==="whenRun")
+ if(!event) return
+
+ let current=getNextBlock(event)
+
+ while(current){
+
+  if(current.dataset.type==="forever"){
+
+   let inner=getNextBlock(current)
+
+   setInterval(async ()=>{
+
+    let loopBlock=inner
+
+    while(loopBlock){
+     await executeBlock(loopBlock)
+     loopBlock=getNextBlock(loopBlock)
+    }
+
+    updateSprite()
+
+   },200)
+
+   break
+  }
+
+  await executeBlock(current)
+  updateSprite()
+  current=getNextBlock(current)
+ }
+}
+
+updateSprite()
+</script>
+</body>
+</html>
